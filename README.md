@@ -3,10 +3,11 @@
 Uptix is a real-time monitoring tool for your servers and websites. This is the Open Source version designed for self-hosting.
 
 ## Features
-- Real-time dashboard with CPU, RAM, and Disk metrics.
-- Website uptime monitoring.
-- Secure login (Single-tenant).
-- Easy to install and customize.
+- **Real-time Dashboard**: CPU, RAM, and Disk metrics.
+- **Service Uptime**: Website monitoring with automated checks.
+- **Email Alerts**: Get notified via SMTP when a site goes down or CPU is critical.
+- **Secure Login**: Simple single-tenant authentication.
+- **Lightweight Agent**: High-performance Rust agent.
 
 ## Components
 - **Hub**: Node.js backend (Socket.IO + Express).
@@ -16,7 +17,7 @@ Uptix is a real-time monitoring tool for your servers and websites. This is the 
 ## Setup
 1. Clone the repository.
 2. Install dependencies for `hub` and `frontend`.
-3. Configure `.env` files.
+3. Configure `.env` files (including SMTP settings for alerts).
 4. Run the Hub and Frontend.
 
 ## License

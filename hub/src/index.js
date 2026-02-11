@@ -5,6 +5,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import pool from './database.js';
+import { sendAlertEmail } from './alerts.js';
 
 dotenv.config();
 
@@ -19,6 +20,8 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+
+const lastAlertState = new Map();
 
 app.post('/api/login', (req, res) => {
     const { password } = req.body;
@@ -61,11 +64,24 @@ io.on('connection', (socket) => {
         if (sites && Array.isArray(sites)) {
             for (const site of sites) {
                 const [existingSite] = await pool.query('SELECT id FROM sites WHERE url = ? AND server_id = ?', [site.url, serverId]);
+                let oldStatus = null;
                 if (existingSite.length > 0) {
+                    oldStatus = existingSite[0].status;
                     await pool.query('UPDATE sites SET status = ?, last_check = NOW() WHERE id = ?', [site.status, existingSite[0].id]);
                 } else {
                     await pool.query('INSERT INTO sites (server_id, url, status, last_check) VALUES (?, ?, ?, NOW())', [serverId, site.url, site.status]);
                 }
+                if (oldStatus && oldStatus !== site.status) {
+                    sendAlertEmail(`Site ${site.status}: ${site.url}`, `The status of ${site.url} has changed from ${oldStatus} to ${site.status}.`);
+                }
+            }
+        }
+        if (cpu_usage > 90) {
+            const alertKey = `${server_name}_cpu`;
+            const now = Date.now();
+            if (!lastAlertState.has(alertKey) || now - lastAlertState.get(alertKey) > 3600000) {
+                sendAlertEmail(`High CPU Usage on ${server_name}`, `Critical: CPU usage on ${server_name} is at ${cpu_usage.toFixed(1)}%.`);
+                lastAlertState.set(alertKey, now);
             }
         }
         io.emit('metrics_update', { serverId, serverName: server_name, cpu_usage, ram_usage, disk_usage, sites, timestamp: new Date() });
