@@ -48,13 +48,22 @@ app.get('/api/servers', authMiddleware, async (req, res) => {
     res.json(rows);
 });
 
+app.post('/api/servers/:id/maintenance', authMiddleware, async (req, res) => {
+    const { id } = req.params;
+    const { is_maintenance } = req.body;
+    await pool.query('UPDATE servers SET is_maintenance = ? WHERE id = ?', [is_maintenance ? 1 : 0, id]);
+    res.json({ success: true, is_maintenance });
+});
+
 io.on('connection', (socket) => {
     socket.on('agent_metrics', async (data) => {
         const { server_name, cpu_usage, ram_usage, disk_usage, sites } = data;
-        const [existingServer] = await pool.query('SELECT id FROM servers WHERE name = ?', [server_name]);
+        const [existingServer] = await pool.query('SELECT id, is_maintenance FROM servers WHERE name = ?', [server_name]);
         let serverId;
+        let isMaintenance = false;
         if (existingServer.length > 0) {
             serverId = existingServer[0].id;
+            isMaintenance = existingServer[0].is_maintenance === 1;
             await pool.query('UPDATE servers SET last_ping = NOW() WHERE id = ?', [serverId]);
         } else {
             const [result] = await pool.query('INSERT INTO servers (name, last_ping) VALUES (?, NOW())', [server_name]);
@@ -63,7 +72,7 @@ io.on('connection', (socket) => {
         await pool.query('INSERT INTO metrics (server_id, cpu_usage, ram_usage, disk_usage) VALUES (?, ?, ?, ?)', [serverId, cpu_usage, ram_usage, disk_usage]);
         if (sites && Array.isArray(sites)) {
             for (const site of sites) {
-                const [existingSite] = await pool.query('SELECT id FROM sites WHERE url = ? AND server_id = ?', [site.url, serverId]);
+                const [existingSite] = await pool.query('SELECT id, status FROM sites WHERE url = ? AND server_id = ?', [site.url, serverId]);
                 let oldStatus = null;
                 if (existingSite.length > 0) {
                     oldStatus = existingSite[0].status;
@@ -71,12 +80,12 @@ io.on('connection', (socket) => {
                 } else {
                     await pool.query('INSERT INTO sites (server_id, url, status, last_check) VALUES (?, ?, ?, NOW())', [serverId, site.url, site.status]);
                 }
-                if (oldStatus && oldStatus !== site.status) {
-                    sendAlertEmail(`Site ${site.status}: ${site.url}`, `The status of ${site.url} has changed from ${oldStatus} to ${site.status}.`);
+                if (!isMaintenance && oldStatus && oldStatus !== site.status) {
+                    sendAlertEmail(`Site ${site.status}: ${site.url}`, `The status of ${site.url} monitored by ${server_name} has changed from ${oldStatus} to ${site.status}.`);
                 }
             }
         }
-        if (cpu_usage > 90) {
+        if (!isMaintenance && cpu_usage > 90) {
             const alertKey = `${server_name}_cpu`;
             const now = Date.now();
             if (!lastAlertState.has(alertKey) || now - lastAlertState.get(alertKey) > 3600000) {
@@ -84,7 +93,7 @@ io.on('connection', (socket) => {
                 lastAlertState.set(alertKey, now);
             }
         }
-        io.emit('metrics_update', { serverId, serverName: server_name, cpu_usage, ram_usage, disk_usage, sites, timestamp: new Date() });
+        io.emit('metrics_update', { serverId, serverName: server_name, cpu_usage, ram_usage, disk_usage, sites, is_maintenance: isMaintenance, timestamp: new Date() });
     });
 });
 
